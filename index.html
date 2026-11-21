@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ПорЯдок 2.3</title>
+<title>ПорЯдок 2.4</title>
 <style>
  body{font-family:sans-serif;margin:0;background:#1c1b18;color:#eee}
  header{display:flex;align-items:center;justify-content:center;gap:10px;padding:8px;background:#2a2823}
@@ -11,8 +11,9 @@
  .bar{display:flex;gap:6px;padding:8px;flex-wrap:wrap;justify-content:center}
  button{font-size:16px;padding:12px 14px;border:0;border-radius:10px;background:#3d6b35;color:#fff}
  button.alt{background:#5a4a22}
+ button.mini{font-size:14px;padding:6px 10px}
  #status{padding:8px;text-align:center;color:#ffd76a;min-height:22px}
- .srow{display:flex;justify-content:center;align-items:center;gap:8px;padding:4px;color:#bbb;font-size:14px}
+ .srow{display:flex;justify-content:center;align-items:center;gap:8px;padding:4px;color:#bbb;font-size:14px;flex-wrap:wrap}
  #view{display:block;width:100%;background:#000;touch-action:pan-y}
  #vcap{text-align:center;color:#888;font-size:13px;padding:4px}
  #zones{padding:8px}
@@ -28,7 +29,7 @@
  .evi .cap{font-size:12px;color:#9f9}
  #visor{position:fixed;inset:0;background:#000;z-index:50;display:none;flex-direction:column}
  #vwrap{position:relative;flex:1;overflow:hidden}
- #vid{width:100%;height:100%;object-fit:cover}
+ #live{position:absolute;inset:0;width:100%;height:100%}
  #ovl{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
  .vbar{padding:8px;background:#2a2823;display:flex;flex-direction:column;gap:6px}
  #hint{text-align:center;font-size:18px;color:#ffd76a;min-height:24px}
@@ -49,7 +50,7 @@
  <line x1="46" y1="58" x2="42" y2="66" stroke="#d22" stroke-width="6" stroke-linecap="round"/>
  <line x1="63" y1="58" x2="67" y2="66" stroke="#d22" stroke-width="6" stroke-linecap="round"/>
 </svg>
-<b>ПорЯдок 2.3 «Детектив»</b>
+<b>ПорЯдок 2.4 «Детектив»</b>
 </header>
 <div class="bar">
  <button id="bRef">1. Эталон</button>
@@ -58,15 +59,18 @@
  <button id="bSrc" class="alt">Источник: камера</button>
  <button id="bReset" class="alt">Сброс</button>
 </div>
-<div class="srow">Строгость: <input type="range" id="sens" min="15" max="60" value="30"> <span id="sensv">30</span> (выше — меньше тревог)</div>
+<div class="srow"><button id="sMinus" class="alt mini">−</button> Строгость: <input type="range" id="sens" min="15" max="60" value="30"> <span id="sensv">30</span> <button id="sPlus" class="alt mini">+</button> (выше — меньше тревог)</div>
 <div id="status">Эталон не задан. Нажмите «1. Эталон». Источник переключается кнопкой «Источник».</div>
 <canvas id="view"></canvas>
 <div id="vcap"></div>
 <div id="zones"></div>
 <div id="visor">
- <div id="vwrap"><video id="vid" autoplay playsinline muted></video><canvas id="ovl"></canvas></div>
+ <div id="vwrap"><canvas id="live"></canvas><canvas id="ovl"></canvas></div>
  <div class="vbar">
   <div class="srow">Прозрачность эталона: <input type="range" id="alpha" min="0" max="100" value="45"></div>
+  <div class="srow">Зум: <input type="range" id="zoom" min="100" max="300" value="100"> <span id="zoomv">1.0</span>
+   <button id="bRot" class="alt mini">⟲ 90°</button>
+   <button id="bCam" class="alt mini">камера ›</button></div>
   <div class="srow"><input type="checkbox" id="autoshot"> Автокадр при совмещении</div>
   <div id="hint">Совмещаем…</div>
   <div class="bar">
@@ -95,7 +99,7 @@ var THR=30, MINFRAC=0.0025, DW=800, LS=192;
 function $(id){return document.getElementById(id);}
 var refC=null,curC=null,zones=[],eviZone=-1,srcMode="cam";
 var lastBoxes=null,lastRefD=null,lastCurD=null,lastF=1,showRef=false,stream=null,hintTimer=null,rafId=null,shotDone=false;
-var prevCan=null,prevMode=null,prevRe=null;
+var prevCan=null,prevMode=null,prevRe=null,visRot=0,visZoom=1,camIdx=0;
 
 function fileToImage(f){return new Promise(function(res,rej){var u=URL.createObjectURL(f);var im=new Image();im.onload=function(){res(im);};im.onerror=rej;im.src=u;});}
 function toCanvas(src,maxW){var w=src.naturalWidth||src.width,h=src.naturalHeight||src.height;var s=Math.min(1,maxW/w);var c=document.createElement("canvas");c.width=Math.round(w*s);c.height=Math.round(h*s);c.getContext("2d").drawImage(src,0,0,c.width,c.height);return c;}
@@ -103,6 +107,7 @@ function grayOf(c){var d=c.getContext("2d").getImageData(0,0,c.width,c.height).d
 function grayAt(c,W,H){var t=document.createElement("canvas");t.width=W;t.height=H;t.getContext("2d").drawImage(c,0,0,W,H);return grayOf(t);}
 function status(t){$("status").textContent=t;}
 function rot90(c,cw){var o=document.createElement("canvas");o.width=c.height;o.height=c.width;var x=o.getContext("2d");x.translate(o.width/2,o.height/2);x.rotate(cw?Math.PI/2:-Math.PI/2);x.drawImage(c,-c.width/2,-c.height/2);return o;}
+function coverDraw(ctx,src,W,H){var s=Math.max(W/src.width,H/src.height);var dw=src.width*s,dh=src.height*s;ctx.drawImage(src,(W-dw)/2,(H-dh)/2,dw,dh);}
 
 function showPreview(im,mode,reopen){
  prevCan=toCanvas(im,1200);prevMode=mode;prevRe=reopen;
@@ -140,7 +145,7 @@ function search(rg,cg,W,H,ss,rr,tx0,tx1,tsx,ty0,ty1,tsy){
 function findAlign(rC,cC,deep){
  var LW=96,LH=Math.max(48,Math.round(96*rC.height/rC.width));
  var rg=grayAt(rC,LW,LH),cg=grayAt(cC,LW,LH);
- var b1=search(rg,cg,LW,LH,[0.85,0.92,1.0,1.08+1,1.15],[-6,-3,0,3,6],-16,16,4,-12,12,3);
+ var b1=search(rg,cg,LW,LH,[0.85,0.92,1.0,1.08,1.15],[-6,-3,0,3,6],-16,16,4,-12,12,3);
  if(b1.score===Infinity)return{s:1,r:0,txu:0,tyu:0,score:Infinity};
  var H2=Math.round(LS*LH/LW);
  var rg2=grayAt(rC,LS,H2),cg2=grayAt(cC,LS,H2);
@@ -166,6 +171,20 @@ function warpRender(cC,W,refAspect,al){
  ctx.drawImage(sc,0,0);
  ctx.setTransform(1,0,0,1,0,0);
  return c;
+}
+function warpValid(W,H,al,srcHW){
+ var v=new Uint8Array(W*H);
+ var sw=W,sh=Math.max(1,Math.round(W*srcHW));
+ var a=al.r*Math.PI/180,co=Math.cos(a),sin=Math.sin(a);
+ var A00=al.s*co,A01=-al.s*sin,A10=al.s*sin,A11=al.s*co;
+ var CX=W/2,CY=H/2,tx=al.txu*W,ty=al.tyu*W;
+ var b0=CX-(A00*CX+A01*CY)+tx,b1=CY-(A10*CX+A11*CY)+ty;
+ for(var y=0;y<H;y++)for(var x=0;x<W;x++){
+  var dx=x-CX,dy=y-CY;
+  var px=Math.round(A00*dx+A01*dy+b0),py=Math.round(A10*dx+A11*dy+b1);
+  v[y*W+x]=(px>=0&&py>=0&&px<sw&&py<sh)?1:0;
+ }
+ return v;
 }
 function blur3(m,W,H){var t=new Float32Array(m.length),o=new Float32Array(m.length);var x,y,i,j;
  for(y=0;y<H;y++)for(x=0;x<W;x++){var s=0,c=0;for(i=-1;i<2;i++){var xx=x+i;if(xx<0||xx>=W)continue;s+=m[y*W+xx];c++;}t[y*W+x]=s/c;}
@@ -238,16 +257,17 @@ function compare(){
    var MW=320,MH=Math.round(MW*refAspect);
    var g1=grayAt(refC,MW,MH);
    var g2=grayOf(warpRender(curWork,MW,refAspect,al));
-   var m1=0,m2=0,i;
-   for(i=0;i<g1.length;i++){m1+=g1[i];m2+=g2[i];}
-   m1/=g1.length;m2/=g2.length;
+   var val=warpValid(MW,MH,al,curWork.height/curWork.width);
+   var m1=0,m2=0,n=0,i;
+   for(i=0;i<g1.length;i++){if(val[i]){m1+=g1[i];m2+=g2[i];n++;}}
+   m1/=Math.max(n,1);m2/=Math.max(n,1);
    var s1=0,s2=0;
-   for(i=0;i<g1.length;i++){s1+=(g1[i]-m1)*(g1[i]-m1);s2+=(g2[i]-m2)*(g2[i]-m2);}
-   s1=Math.sqrt(s1/g1.length);s2=Math.sqrt(s2/g2.length);
+   for(i=0;i<g1.length;i++){if(val[i]){s1+=(g1[i]-m1)*(g1[i]-m1);s2+=(g2[i]-m2)*(g2[i]-m2);}}
+   s1=Math.sqrt(s1/Math.max(n,1));s2=Math.sqrt(s2/Math.max(n,1));
    var g2n=new Float32Array(g2.length);
    for(i=0;i<g2.length;i++){g2n[i]=Math.max(0,Math.min(255,(g2[i]-m2)*(s1/Math.max(s2,0.001))+m1));}
    var diff=new Float32Array(g1.length);
-   for(i=0;i<diff.length;i++)diff[i]=Math.abs(g1[i]-g2n[i]);
+   for(i=0;i<diff.length;i++)diff[i]=val[i]?Math.abs(g1[i]-g2n[i]):0;
    diff=blur3(diff,MW,MH);
    var mask=new Uint8Array(MW*MH);
    for(i=0;i<mask.length;i++)mask[i]=diff[i]>THR?1:0;
@@ -292,57 +312,73 @@ function stopVisor(){
  if(stream){stream.getTracks().forEach(function(t){t.stop();});stream=null;}
  $("visor").style.display="none";
 }
+function grabFrame(){
+ var vid=$("vidEl");
+ var vw=vid.videoWidth,vh=vid.videoHeight;
+ if(!vw)return null;
+ var tmp=document.createElement("canvas");tmp.width=vw;tmp.height=vh;
+ tmp.getContext("2d").drawImage(vid,0,0);
+ var z=visZoom;
+ var cw=vw/z,ch=vh/z;
+ var rot=visRot%4,swap=rot%2===1;
+ var cr=document.createElement("canvas");
+ cr.width=swap?Math.round(ch):Math.round(cw);
+ cr.height=swap?Math.round(cw):Math.round(ch);
+ var cx=cr.getContext("2d");
+ cx.translate(cr.width/2,cr.height/2);
+ cx.rotate(rot*Math.PI/2);
+ cx.drawImage(tmp,(vw-cw)/2,(vh-ch)/2,cw,ch,-cw/2,-ch/2,cw,ch);
+ return cr;
+}
 function doShot(){
- var vid2=$("vid");
- var c=document.createElement("canvas");c.width=vid2.videoWidth;c.height=vid2.videoHeight;
- c.getContext("2d").drawImage(vid2,0,0);
- curC=toCanvas(c,1200);
+ var fr=grabFrame();
+ if(!fr)return;
+ curC=toCanvas(fr,1200);
  stopVisor();
  status("Проверка получена. Сравниваю…");
  compare();
 }
-function startVisor(){
+function startVisor(devId){
  if(!refC){status("Сначала задайте эталон.");return;}
  shotDone=false;
  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){status("Визир недоступен здесь, снимаю обычно.");$("fCurCam").click();return;}
- navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}}).then(function(st){
+ var cons=devId?{deviceId:{exact:devId}}:{facingMode:{ideal:"environment"}};
+ navigator.mediaDevices.getUserMedia({video:cons}).then(function(st){
   stream=st;
-  var vid=$("vid");vid.srcObject=st;
+  var vid=$("vidEl");vid.srcObject=st;
   $("visor").style.display="flex";
-  vid.onloadedmetadata=function(){
-   var ovl=$("ovl"),wrap=$("vwrap");
-   ovl.width=wrap.clientWidth;ovl.height=wrap.clientHeight;
-   var refHW=refC.height/refC.width;
-   var vidHW=vid.videoHeight/vid.videoWidth;
-   var mismatch=(refHW>1)!==(vidHW>1);
-   var loop=function(){
-    var ctx=ovl.getContext("2d");
-    ctx.clearRect(0,0,ovl.width,ovl.height);
-    ctx.globalAlpha=$("alpha").value/100;
-    var sc=Math.min(ovl.width/refC.width,ovl.height/refC.height);
-    var dw=refC.width*sc,dh=refC.height*sc;
-    ctx.drawImage(refC,(ovl.width-dw)/2,(ovl.height-dh)/2,dw,dh);
-    ctx.globalAlpha=1;
-    rafId=requestAnimationFrame(loop);
-   };
-   loop();
-   var fc=document.createElement("canvas");
-   hintTimer=setInterval(function(){
-    var h=$("hint");
-    if(!vid.videoWidth)return;
-    if(mismatch){h.className="bad";h.textContent=refHW>1?"Эталон снят ВЕРТИКАЛЬНО — поверните телефон вертикально":"Эталон снят ГОРИЗОНТАЛЬНО — поверните телефон горизонтально";return;}
-    fc.width=320;fc.height=Math.round(320*vid.videoHeight/vid.videoWidth);
-    fc.getContext("2d").drawImage(vid,0,0,fc.width,fc.height);
-    var al=findAlign(refC,fc,false);
-    var parts=[];
-    if(al.score===Infinity){h.className="";h.textContent="Наведите на ту же сцену";return;}
-    if(al.txu>0.02)parts.push("→ право");else if(al.txu<-0.02)parts.push("← лево");
-    if(al.tyu>0.02)parts.push("↓ низ");else if(al.tyu<-0.02)parts.push("↑ верх");
-    if(al.s<0.85)parts.push("сильно ближе");else if(al.s>1.15)parts.push("сильно дальше");
-    if(parts.length===0){h.className="good";h.textContent="✓ совмещено, снимайте!";if($("autoshot").checked&&!shotDone){shotDone=true;doShot();}}
-    else{h.className="";h.textContent=parts.join(", ");}
-   },700);
+  var live=$("live"),ovl=$("ovl"),wrap=$("vwrap");
+  live.width=wrap.clientWidth;live.height=wrap.clientHeight;
+  ovl.width=wrap.clientWidth;ovl.height=wrap.clientHeight;
+  var loop=function(){
+   var fr=grabFrame();
+   var lctx=live.getContext("2d");
+   lctx.fillStyle="#000";lctx.fillRect(0,0,live.width,live.height);
+   if(fr)coverDraw(lctx,fr,live.width,live.height);
+   var octx=ovl.getContext("2d");
+   octx.clearRect(0,0,ovl.width,ovl.height);
+   octx.globalAlpha=$("alpha").value/100;
+   coverDraw(octx,refC,ovl.width,ovl.height);
+   octx.globalAlpha=1;
+   rafId=requestAnimationFrame(loop);
   };
+  loop();
+  hintTimer=setInterval(function(){
+   var h=$("hint");
+   var fr=grabFrame();
+   if(!fr)return;
+   var frHW=fr.height/fr.width;
+   var refHW=refC.height/refC.width;
+   if((refHW>1)!==(frHW>1)){h.className="bad";h.textContent=refHW>1?"Эталон снят ВЕРТИКАЛЬНО — поверните телефон вертикально":"Эталон снят ГОРИЗОНТАЛЬНО — поверните телефон горизонтально";return;}
+   var al=findAlign(refC,toCanvas(fr,320),false);
+   var parts=[];
+   if(al.score===Infinity){h.className="";h.textContent="Наведите на ту же сцену";return;}
+   if(al.txu>0.02)parts.push("→ право");else if(al.txu<-0.02)parts.push("← лево");
+   if(al.tyu>0.02)parts.push("↓ низ");else if(al.tyu<-0.02)parts.push("↑ верх");
+   if(al.s<0.85)parts.push("сильно ближе");else if(al.s>1.15)parts.push("сильно дальше");
+   if(parts.length===0){h.className="good";h.textContent="✓ совмещено, снимайте!";if($("autoshot").checked&&!shotDone){shotDone=true;doShot();}}
+   else{h.className="";h.textContent=parts.join(", ");}
+  },700);
   $("bShot").onclick=doShot;
   $("bCancel").onclick=function(){stopVisor();status("Визир отменён. Источник: "+(srcMode==="cam"?"камера":"память")+".");};
  }).catch(function(){
@@ -376,10 +412,24 @@ $("bPrevRe").onclick=function(){
  if(r)r();
 };
 $("bRef").onclick=function(){(srcMode==="cam"?$("fRefCam"):$("fRefMem")).click();};
-$("bCur").onclick=function(){if(srcMode==="cam")startVisor();else $("fCurMem").click();};
+$("bCur").onclick=function(){if(srcMode==="cam")startVisor(null);else $("fCurMem").click();};
 $("bGo").onclick=compare;
 $("bSrc").onclick=function(){srcMode=srcMode==="cam"?"mem":"cam";this.textContent=srcMode==="cam"?"Источник: камера":"Источник: память";status("Источник: "+(srcMode==="cam"?"камера (визир при проверке)":"память (галерея)")+".");};
 $("bReset").onclick=function(){localStorage.removeItem("poryadok_ref");refC=null;curC=null;zones=[];lastBoxes=null;lastRefD=null;lastCurD=null;$("zones").innerHTML="";var v=$("view");v.getContext("2d").clearRect(0,0,v.width,v.height);$("vcap").textContent="";status("Эталон сброшен. Источник: "+(srcMode==="cam"?"камера":"память")+". Нажмите «1. Эталон».");};
+$("bRot").onclick=function(){visRot=(visRot+1)%4;};
+$("zoom").oninput=function(){visZoom=+this.value/100;$("zoomv").textContent=visZoom.toFixed(1);};
+$("bCam").onclick=function(){
+ navigator.mediaDevices.enumerateDevices().then(function(ds){
+  var vids=ds.filter(function(d){return d.kind==="videoinput";});
+  if(vids.length<2){$("hint").textContent="На этом телефоне камера одна";return;}
+  camIdx=(camIdx+1)%vids.length;
+  var id=vids[camIdx].deviceId;
+  stopVisor();
+  startVisor(id);
+ });
+};
+$("sMinus").onclick=function(){THR=Math.max(15,THR-1);$("sens").value=THR;$("sensv").textContent=THR;if(refC&&curC)compare();};
+$("sPlus").onclick=function(){THR=Math.min(60,THR+1);$("sens").value=THR;$("sensv").textContent=THR;if(refC&&curC)compare();};
 $("fRefCam").onchange=function(){var f=this.files[0];this.value="";if(f)fileToImage(f).then(function(im){setRefCanvas(toCanvas(im,1200));});};
 $("fRefMem").onchange=function(){var f=this.files[0];this.value="";if(f)fileToImage(f).then(function(im){showPreview(im,"ref",function(){$("fRefMem").click();});});};
 $("fCurCam").onchange=function(){var f=this.files[0];this.value="";if(f)fileToImage(f).then(function(im){setCurCanvas(toCanvas(im,1200));});};
@@ -394,5 +444,6 @@ $("view").addEventListener("click",function(){if(lastRefD){showRef=!showRef;draw
  if(d){var im=new Image();im.onload=function(){refC=toCanvas(im,1200);status("Эталон загружен из памяти. Можно сразу «2. Проверка».");};im.src=d;}
 })();
 </script>
+<video id="vidEl" autoplay playsinline muted style="display:none"></video>
 </body>
 </html>
