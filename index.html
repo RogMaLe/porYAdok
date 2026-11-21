@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ПорЯдок 2.5</title>
+<title>ПорЯдок 2.6</title>
 <style>
  body{font-family:sans-serif;margin:0;background:#1c1b18;color:#eee}
  header{display:flex;align-items:center;justify-content:center;gap:10px;padding:8px;background:#2a2823}
@@ -52,7 +52,7 @@
  <line x1="46" y1="58" x2="42" y2="66" stroke="#d22" stroke-width="6" stroke-linecap="round"/>
  <line x1="63" y1="58" x2="67" y2="66" stroke="#d22" stroke-width="6" stroke-linecap="round"/>
 </svg>
-<b>ПорЯдок 2.5 «Детектив»</b>
+<b>ПорЯдок 2.6 «Детектив»</b>
 </header>
 <div class="bar">
  <button id="bRef">1. Эталон</button>
@@ -104,11 +104,11 @@
 <video id="vidEl" autoplay playsinline muted style="display:none"></video>
 <script>
 "use strict";
-var THR=30, MINFRAC=0.0025, DW=800, LS=192, B=16;
+var THR=30, MINFRAC=0.0025, DW=800, B=16, SB=16;
 function $(id){return document.getElementById(id);}
 var refC=null,curC=null,zones=[],eviZone=-1,srcMode="cam";
 var lastBoxes=null,lastRefD=null,lastCurD=null,lastF=1,showRef=false,stream=null,hintTimer=null,rafId=null,shotDone=false;
-var prevCan=null,prevMode=null,prevRe=null,visRot=0,visZoom=1,camIdx=0,visAl=null;
+var prevCan=null,prevMode=null,prevRe=null,visRot=0,visZoom=1,camIdx=0,ghostCan=null;
 var lastMask=null,lastMW=0,lastMH=0,lastInfo=0;
 
 function fileToImage(f){return new Promise(function(res,rej){var u=URL.createObjectURL(f);var im=new Image();im.onload=function(){res(im);};im.onerror=rej;im.src=u;});}
@@ -118,6 +118,13 @@ function grayAt(c,W,H){var t=document.createElement("canvas");t.width=W;t.height
 function status(t){$("status").textContent=t;}
 function rot90(c,cw){var o=document.createElement("canvas");o.width=c.height;o.height=c.width;var x=o.getContext("2d");x.translate(o.width/2,o.height/2);x.rotate(cw?Math.PI/2:-Math.PI/2);x.drawImage(c,-c.width/2,-c.height/2);return o;}
 function coverDraw(ctx,src,W,H){var s=Math.max(W/src.width,H/src.height);var dw=src.width*s,dh=src.height*s;ctx.drawImage(src,(W-dw)/2,(H-dh)/2,dw,dh);}
+function coverCrop(c,aspectWH){
+ var cw=c.width,ch=c.height,ca=cw/ch,sw,sh;
+ if(ca>aspectWH){sh=ch;sw=ch*aspectWH;}else{sw=cw;sh=cw/aspectWH;}
+ var o=document.createElement("canvas");o.width=Math.max(2,Math.round(sw));o.height=Math.max(2,Math.round(sh));
+ o.getContext("2d").drawImage(c,(cw-sw)/2,(ch-sh)/2,sw,sh,0,0,o.width,o.height);
+ return o;
+}
 
 function showPreview(im,mode,reopen){
  prevCan=toCanvas(im,1200);prevMode=mode;prevRe=reopen;
@@ -152,19 +159,15 @@ function search(rg,cg,W,H,ss,rr,tx0,tx1,tsx,ty0,ty1,tsy){
   }
  return best;
 }
-function findAlign(rC,cC,deep){
+function findAlign(rC,cC){
  var LW=96,LH=Math.max(48,Math.round(96*rC.height/rC.width));
  var rg=grayAt(rC,LW,LH),cg=grayAt(cC,LW,LH);
  var b1=search(rg,cg,LW,LH,[0.85,0.92,1.0,1.08,1.15],[-6,-3,0,3,6],-16,16,4,-12,12,3);
  if(b1.score===Infinity)return{s:1,r:0,txu:0,tyu:0,score:Infinity};
- var H2=Math.round(LS*LH/LW);
- var rg2=grayAt(rC,LS,H2),cg2=grayAt(cC,LS,H2);
- var b2=search(rg2,cg2,LS,H2,[b1.s-0.02,b1.s,b1.s+0.02],[b1.r-1.5,b1.r,b1.r+1.5],Math.round(b1.tx*2)-4,Math.round(b1.tx*2)+4,2,Math.round(b1.ty*2)-4,Math.round(b1.ty*2)+4,2);
- if(!deep)return{s:b2.s,r:b2.r,txu:b2.tx/LS,tyu:b2.ty/LS,score:b2.score};
- var L3=384,H3=Math.round(L3*LH/LW);
- var rg3=grayAt(rC,L3,H3),cg3=grayAt(cC,L3,H3);
- var b3=search(rg3,cg3,L3,H3,[b2.s-0.01,b2.s,b2.s+0.01],[b2.r-0.5,b2.r,b2.r+0.5],Math.round(b2.tx*2)-2,Math.round(b2.tx*2)+2,1,Math.round(b2.ty*2)-2,Math.round(b2.ty*2)+2,1);
- return{s:b3.s,r:b3.r,txu:b3.tx/L3,tyu:b3.ty/L3,score:b3.score};
+ var L2=192,H2=Math.round(L2*LH/LW);
+ var rg2=grayAt(rC,L2,H2),cg2=grayAt(cC,L2,H2);
+ var b2=search(rg2,cg2,L2,H2,[b1.s-0.02,b1.s,b1.s+0.02],[b1.r-1.5,b1.r,b1.r+1.5],Math.round(b1.tx*2)-4,Math.round(b1.tx*2)+4,2,Math.round(b1.ty*2)-4,Math.round(b1.ty*2)+4,2);
+ return{s:b2.s,r:b2.r,txu:b2.tx/L2,tyu:b2.ty/L2,score:b2.score};
 }
 function blockCompare(g1,g2,W,H,al){
  var GW=Math.floor(W/B),GH=Math.floor(H/B);
@@ -177,8 +180,8 @@ function blockCompare(g1,g2,W,H,al){
  var mx=CX-(A00*CX+A01*CY)+b0x,my=CY-(A10*CX+A11*CY)+b0y;
  for(var by=0;by<GH;by++)for(var bx=0;bx<GW;bx++){
   var x0=bx*B,y0=by*B,i,j;
-  var mR=0,cnt=0;
-  for(j=0;j<B;j++)for(i=0;i<B;i++){mR+=g1[(y0+j)*W+(x0+i)];cnt++;}
+  var mR=0,cnt=B*B;
+  for(j=0;j<B;j++)for(i=0;i<B;i++){mR+=g1[(y0+j)*W+(x0+i)];}
   mR/=cnt;
   var mad=0;
   for(j=0;j<B;j++)for(i=0;i<B;i++){mad+=Math.abs(g1[(y0+j)*W+(x0+i)]-mR);}
@@ -205,6 +208,59 @@ function blockCompare(g1,g2,W,H,al){
  }
  lastInfo=info>0?changed/info:0;
  return{mask:mask,GW:GW,GH:GH};
+}
+function computeShifts(refG,fr){
+ var LW=160;
+ var Hr=Math.max(32,Math.round(LW*refG.height/refG.width));
+ var Hc=Math.max(32,Math.round(LW*fr.height/fr.width));
+ var R=grayAt(refG,LW,Hr),C=grayAt(fr,LW,Hc);
+ var GW=Math.floor(LW/SB),GH=Math.floor(Math.min(Hr,Hc)/SB);
+ var shx=new Float32Array(GW*GH),shy=new Float32Array(GW*GH),ok=new Uint8Array(GW*GH);
+ var xs=[],ys=[];
+ for(var by=0;by<GH;by++)for(var bx=0;bx<GW;bx++){
+  var x0=bx*SB,y0=by*SB,i,j;
+  var mR=0,cnt=SB*SB;
+  for(j=0;j<SB;j++)for(i=0;i<SB;i++){mR+=R[(y0+j)*LW+(x0+i)];}
+  mR/=cnt;
+  var mad=0;
+  for(j=0;j<SB;j++)for(i=0;i<SB;i++){mad+=Math.abs(R[(y0+j)*LW+(x0+i)]-mR);}
+  mad/=cnt;
+  if(mad<5)continue;
+  var best=Infinity,bdx=0,bdy=0;
+  for(var dy=-10;dy<=10;dy+=2)for(var dx=-10;dx<=10;dx+=2){
+   var sx=x0+dx,sy=y0+dy;
+   if(sx<0||sy<0||sx+SB>LW||sy+SB>Hc)continue;
+   var mC=0;
+   for(j=0;j<SB;j++)for(i=0;i<SB;i++){mC+=C[(sy+j)*LW+(sx+i)];}
+   mC/=cnt;
+   var r=0;
+   for(j=0;j<SB;j++)for(i=0;i<SB;i++){r+=Math.abs((R[(y0+j)*LW+(x0+i)]-mR)-(C[(sy+j)*LW+(sx+i)]-mC));}
+   r/=cnt;
+   if(r<best){best=r;bdx=dx;bdy=dy;}
+  }
+  if(best<25){ok[by*GW+bx]=1;shx[by*GW+bx]=bdx;shy[by*GW+bx]=bdy;xs.push(bdx);ys.push(bdy);}
+ }
+ var medx=0,medy=0;
+ if(xs.length){xs.sort(function(a,b){return a-b;});ys.sort(function(a,b){return a-b;});medx=xs[xs.length>>1];medy=ys[ys.length>>1];}
+ return{shx:shx,shy:shy,ok:ok,GW:GW,GH:GH,medx:medx,medy:medy,okf:xs.length/(GW*GH),LW:LW,Hr:Hr,Hc:Hc};
+}
+function renderGhost(gcan,W,H,fr,refG,sh){
+ var ctx=gcan.getContext("2d");
+ ctx.clearRect(0,0,W,H);
+ var sL=Math.max(W/fr.width,H/fr.height);
+ var offXL=(W-fr.width*sL)/2,offYL=(H-fr.height*sL)/2;
+ var kx=fr.width/sh.LW,ky=fr.height/sh.Hc;
+ var gsx=refG.width/sh.LW,gsy=refG.height/sh.Hr;
+ for(var by=0;by<sh.GH;by++)for(var bx=0;bx<sh.GW;bx++){
+  var idx=by*sh.GW+bx;
+  var dx=sh.ok[idx]?sh.shx[idx]:sh.medx;
+  var dy=sh.ok[idx]?sh.shy[idx]:sh.medy;
+  var destX=offXL+(bx*SB+dx)*kx*sL;
+  var destY=offYL+(by*SB+dy)*ky*sL;
+  var destW=SB*kx*sL+1,destH=SB*ky*sL+1;
+  var srcX=bx*SB*gsx,srcY=by*SB*gsy,srcW=SB*gsx+1,srcH=SB*gsy+1;
+  ctx.drawImage(refG,srcX,srcY,srcW,srcH,destX,destY,destW,destH);
+ }
 }
 function componentsBlocks(mask,GW,GH,minBlocks){
  var seen=new Uint8Array(GW*GH),out=[],stack=[];
@@ -257,15 +313,16 @@ function compare(){
  status("Сравниваю… секундочку.");
  setTimeout(function(){
   try{
+   var refWH=refC.width/refC.height;
+   var curWork=coverCrop(curC,refWH);
    var refAspect=refC.height/refC.width;
-   var curWork=curC;
-   var curAspect=curC.height/curC.width;
+   var curAspect=curWork.height/curWork.width;
    if((refAspect>1)!==(curAspect>1)){
-    var c1=rot90(curC,true),c2=rot90(curC,false);
-    var a1=findAlign(refC,c1,false),a2=findAlign(refC,c2,false);
+    var c1=coverCrop(rot90(curC,true),refWH),c2=coverCrop(rot90(curC,false),refWH);
+    var a1=findAlign(refC,c1),a2=findAlign(refC,c2);
     if(a1.score<=a2.score)curWork=c1;else curWork=c2;
    }
-   var al=findAlign(refC,curWork,false);
+   var al=findAlign(refC,curWork);
    if(al.score===Infinity)al=null;
    var MW=320,MH=Math.round(MW*refAspect);
    var g1=grayAt(refC,MW,MH);
@@ -317,17 +374,16 @@ function addZone(n,b,refD,curD,f){
 function buildReport(){
  if(!lastRefD||!lastCurD){status("Сначала сделайте сравнение, потом отчёт.");return;}
  var W=720,pad=10,y=pad;
- var tmp=document.createElement("canvas");tmp.width=W;tmp.height=2000;
+ var tmp=document.createElement("canvas");tmp.width=W;tmp.height=2600;
  var ctx=tmp.getContext("2d");
- ctx.fillStyle="#111";ctx.fillRect(0,0,W,2000);
+ ctx.fillStyle="#111";ctx.fillRect(0,0,W,2600);
  ctx.fillStyle="#ffd76a";ctx.font="bold 22px sans-serif";
- ctx.fillText("ПорЯдок 2.5, строгость "+THR+", зон: "+(lastBoxes?lastBoxes.length:0),pad,y+22);y+=34;
- ctx.fillText("изменённых блоков: "+(lastInfo*100).toFixed(1)+"%",pad,y+18);y+=40;
+ ctx.fillText("ПорЯдок 2.6, строгость "+THR+", зон: "+(lastBoxes?lastBoxes.length:0),pad,y+22);y+=34;
+ ctx.fillText("изменённых информативных блоков: "+(lastInfo*100).toFixed(1)+"%",pad,y+18);y+=40;
  function section(c,label){
   var h=Math.round(W*c.height/c.width);
   ctx.fillStyle="#fff";ctx.font="bold 18px sans-serif";ctx.fillText(label,pad,y+14);y+=20;
   ctx.drawImage(c,0,0,c.width,c.height,pad,y,W,h);y+=h+pad;
-  return y;
  }
  section(lastRefD,"ЭТАЛОН");
  section(lastCurD,"ПРОВЕРКА");
@@ -337,9 +393,8 @@ function buildReport(){
   for(var i=0;i<lastMask.length;i++){var v=lastMask[i]?255:0;md.data[i*4]=v;md.data[i*4+1]=v;md.data[i*4+2]=v;md.data[i*4+3]=255;}
   mc.getContext("2d").putImageData(md,0,0);
   ctx.fillStyle="#fff";ctx.font="bold 18px sans-serif";ctx.fillText("МАСКА ИЗМЕНЕНИЙ (белое = тревога)",pad,y+14);y+=20;
-  ctx.imageSmoothingEnabled=false;
-  ctx.drawImage(mc,0,0,lastMW,lastMH,pad,y,W*Math.max(1,Math.floor(lastMW*B/320))*0+W,y+0);
   var hm=Math.round(W*lastMH/lastMW);
+  ctx.imageSmoothingEnabled=false;
   ctx.drawImage(mc,0,0,lastMW,lastMH,pad,y,W,hm);y+=hm+pad;
  }
  var fin=document.createElement("canvas");fin.width=W;fin.height=y;
@@ -385,31 +440,9 @@ function ghostRef(fr){
  if((refHW>1)!==(frHW>1))return rot90(refC,true);
  return refC;
 }
-function drawGhost(ctx,W,H,fr,refG,al){
- ctx.clearRect(0,0,W,H);
- ctx.globalAlpha=$("alpha").value/100;
- if(al){
-  var sC=Math.max(W/fr.width,H/fr.height);
-  var offX=(W-fr.width*sC)/2,offY=(H-fr.height*sC)/2;
-  var a=al.r*Math.PI/180,co=Math.cos(a),si=Math.sin(a),s=al.s;
-  var rw=refG.width,rh=refG.height,fw=fr.width,fh=fr.height;
-  var kx=sC*fw*s*co/rw;
-  var kyx=-sC*fw*s*si/rh;
-  var kxy=sC*fh*s*si/rw;
-  var ky=sC*fh*s*co/rh;
-  var e=offX+sC*fw*(0.5+al.txu-0.5*s*co+0.5*s*si);
-  var f=offY+sC*fh*(0.5+al.tyu-0.5*s*si-0.5*s*co);
-  ctx.setTransform(kx,kxy,kyx,ky,e,f);
-  ctx.drawImage(refG,0,0);
-  ctx.setTransform(1,0,0,1,0,0);
- }else{
-  coverDraw(ctx,refG,W,H);
- }
- ctx.globalAlpha=1;
-}
 function startVisor(devId){
  if(!refC){status("Сначала задайте эталон.");return;}
- shotDone=false;visAl=null;
+ shotDone=false;ghostCan=null;
  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){status("Визир недоступен здесь, снимаю обычно.");$("fCurCam").click();return;}
  var cons=devId?{deviceId:{exact:devId}}:{facingMode:{ideal:"environment"}};
  navigator.mediaDevices.getUserMedia({video:cons}).then(function(st){
@@ -421,6 +454,7 @@ function startVisor(devId){
    if(live.width!==wrap.clientWidth||live.height!==wrap.clientHeight){
     live.width=wrap.clientWidth;live.height=wrap.clientHeight;
     ovl.width=wrap.clientWidth;ovl.height=wrap.clientHeight;
+    ghostCan=document.createElement("canvas");ghostCan.width=ovl.width;ghostCan.height=ovl.height;
    }
   };
   fit();
@@ -430,21 +464,27 @@ function startVisor(devId){
    var lctx=live.getContext("2d");
    lctx.fillStyle="#000";lctx.fillRect(0,0,live.width,live.height);
    if(fr)coverDraw(lctx,fr,live.width,live.height);
-   if(fr)drawGhost(ovl.getContext("2d"),ovl.width,ovl.height,fr,ghostRef(fr),visAl);
+   var octx=ovl.getContext("2d");
+   octx.clearRect(0,0,ovl.width,ovl.height);
+   if(fr&&ghostCan){
+    octx.globalAlpha=$("alpha").value/100;
+    octx.drawImage(ghostCan,0,0);
+    octx.globalAlpha=1;
+   }
    rafId=requestAnimationFrame(loop);
   };
   loop();
   hintTimer=setInterval(function(){
    var h=$("hint");
    var fr=grabFrame();
-   if(!fr)return;
-   var al=findAlign(ghostRef(fr),toCanvas(fr,320),false);
-   visAl=(al.score===Infinity)?null:al;
+   if(!fr||!ghostCan)return;
+   var refG=ghostRef(fr);
+   var sh=computeShifts(refG,fr);
+   renderGhost(ghostCan,ghostCan.width,ghostCan.height,fr,refG,sh);
    var parts=[];
-   if(!visAl){h.className="";h.textContent="Наведите на ту же сцену";return;}
-   if(visAl.txu>0.02)parts.push("→ право");else if(visAl.txu<-0.02)parts.push("← лево");
-   if(visAl.tyu>0.02)parts.push("↓ низ");else if(visAl.tyu<-0.02)parts.push("↑ верх");
-   if(visAl.s<0.85)parts.push("сильно ближе");else if(visAl.s>1.15)parts.push("сильно дальше");
+   if(sh.okf<0.15){h.className="";h.textContent="Наведите на ту же сцену";return;}
+   if(sh.medx>1.5)parts.push("→ право");else if(sh.medx<-1.5)parts.push("← лево");
+   if(sh.medy>1.5)parts.push("↓ низ");else if(sh.medy<-1.5)parts.push("↑ верх");
    if(parts.length===0){h.className="good";h.textContent="✓ совмещено, снимайте!";if($("autoshot").checked&&!shotDone){shotDone=true;doShot();}}
    else{h.className="";h.textContent=parts.join(", ");}
   },700);
