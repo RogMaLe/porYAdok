@@ -40,7 +40,7 @@ if not icon_done:
     <path android:pathData="M36,60 L12,90" android:strokeColor="#111111" android:strokeWidth="13" android:strokeLineCap="round"/>
     <path android:pathData="M56,40 m-30,0 a30,30 0 1,0 60,0 a30,30 0 1,0 -60,0" android:fillColor="#FFFFFF" android:strokeColor="#111111" android:strokeWidth="11"/>
     <path android:pathData="M46,58 L42,66" android:strokeColor="#DD2222" android:strokeWidth="6" android:strokeLineCap="round"/>
-    <path android:pathData="M63,58 L67,66" android:strokeColor="#DD2222" android:strokeWidth="6" stroke-linecap="round"/>
+    <path android:pathData="M63,58 L67,66" android:strokeColor="#DD2222" android:strokeWidth="6" android:strokeLineCap="round"/>
 </vector>
 ''')
 
@@ -71,12 +71,25 @@ w("app/build.gradle.kts", '''plugins {
 android {
     namespace = "ru.poryadok.app"
     compileSdk = 34
+    signingConfigs {
+        create("stable") {
+            storeFile = rootProject.file("poryadok.jks")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
     defaultConfig {
         applicationId = "ru.poryadok.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 2
-        versionName = "2.4"
+        versionCode = 3
+        versionName = "2.7"
+    }
+    buildTypes {
+        debug {
+            signingConfig = if (rootProject.file("poryadok.jks").exists()) signingConfigs.getByName("stable") else signingConfigs.getByName("debug")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -131,7 +144,10 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
+import android.view.KeyEvent
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -147,9 +163,29 @@ class MainActivity : Activity() {
     private var uploadMessage: ValueCallback<Array<Uri>>? = null
     private var web: WebView? = null
     private var camUri: Uri? = null
+    private val idleHandler = Handler(Looper.getMainLooper())
+    private val dimRunnable = Runnable {
+        val lp = window.attributes
+        lp.screenBrightness = 0.01f
+        window.attributes = lp
+    }
+
+    private fun resetIdle() {
+        idleHandler.removeCallbacks(dimRunnable)
+        val lp = window.attributes
+        lp.screenBrightness = -1f
+        window.attributes = lp
+        idleHandler.postDelayed(dimRunnable, 420000L)
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        resetIdle()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        resetIdle()
         val w = WebView(this)
         web = w
         setContentView(w)
@@ -189,6 +225,21 @@ class MainActivity : Activity() {
             }
         }
         w.loadUrl("https://appassets.androidplatform.net/assets/index.html")
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_CAMERA) {
+            web?.evaluateJavascript("if(window.btShutter){window.btShutter();}", null)
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_CAMERA) {
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
     }
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
