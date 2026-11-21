@@ -15,10 +15,22 @@ shutil.copy(htmls[0], "app/src/main/assets/index.html")
 
 os.makedirs("app/src/main/res/drawable", exist_ok=True)
 icon_done = False
-for ext in ("png", "jpg", "jpeg", "webp"):
-    g = glob.glob("*." + ext)
-    if g:
-        shutil.copy(g[0], "app/src/main/res/drawable/ic_launcher." + ext)
+for f in glob.glob("*"):
+    if not os.path.isfile(f):
+        continue
+    try:
+        head = open(f, "rb").read(12)
+    except Exception:
+        continue
+    ext = None
+    if head[:8] == b"\x89PNG\r\n\x1a\n":
+        ext = "png"
+    elif head[:3] == b"\xff\xd8\xff":
+        ext = "jpg"
+    elif head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        ext = "webp"
+    if ext:
+        shutil.copy(f, "app/src/main/res/drawable/ic_launcher." + ext)
         icon_done = True
         break
 if not icon_done:
