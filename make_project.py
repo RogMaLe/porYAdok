@@ -130,7 +130,7 @@ class MainActivity : Activity() {
         web.settings.mediaPlaybackRequiresUserGesture = false
         web.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest) =
-                assetLoader.shouldInterceptRequest(request)
+                assetLoader.shouldInterceptRequest(request.url)
         }
         web.webChromeClient = object : WebChromeClient() {
             override fun onPermissionRequest(request: PermissionRequest) {
