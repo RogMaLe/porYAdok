@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ПорЯдок 2.6</title>
+<title>ПорЯдок 2.7</title>
 <style>
  body{font-family:sans-serif;margin:0;background:#1c1b18;color:#eee}
  header{display:flex;align-items:center;justify-content:center;gap:10px;padding:8px;background:#2a2823}
@@ -39,10 +39,12 @@
  #porient{text-align:center;color:#ffd76a;padding:6px;font-size:16px}
  #rep{position:fixed;inset:0;background:#111;z-index:70;display:none;flex-direction:column;overflow:auto}
  #repimg{display:block;width:100%;background:#000}
- #repcap{text-align:center;color:#ffd76a;padding:8px;font-size:14px}
+ #repcap{text-align:center;color:#ffd76a;padding:8px;font-size:15px}
+ #bScr{position:fixed;top:4px;right:4px;z-index:80;background:rgba(0,0,0,0.35);color:#fff;border:0;border-radius:8px;padding:4px 8px;font-size:14px}
 </style>
 </head>
 <body>
+<button id="bScr" title="скриншот для разработчика">📷</button>
 <header>
 <svg width="46" height="46" viewBox="0 0 100 100">
  <line x1="36" y1="60" x2="12" y2="90" stroke="#111" stroke-width="13"/>
@@ -52,7 +54,7 @@
  <line x1="46" y1="58" x2="42" y2="66" stroke="#d22" stroke-width="6" stroke-linecap="round"/>
  <line x1="63" y1="58" x2="67" y2="66" stroke="#d22" stroke-width="6" stroke-linecap="round"/>
 </svg>
-<b>ПорЯдок 2.6 «Детектив»</b>
+<b>ПорЯдок 2.7 «Детектив»</b>
 </header>
 <div class="bar">
  <button id="bRef">1. Эталон</button>
@@ -93,7 +95,7 @@
 </div>
 <div id="rep">
  <img id="repimg" alt="отчёт">
- <div id="repcap">Долго держите палец на картинке → «Сохранить изображение». Потом пришлите её в чат.</div>
+ <div id="repcap"></div>
  <div class="bar"><button id="bRepClose" class="alt">Закрыть</button></div>
 </div>
 <input type="file" id="fRefCam" accept="image/*" capture="environment" hidden>
@@ -108,7 +110,7 @@ var THR=30, MINFRAC=0.0025, DW=800, B=16, SB=16;
 function $(id){return document.getElementById(id);}
 var refC=null,curC=null,zones=[],eviZone=-1,srcMode="cam";
 var lastBoxes=null,lastRefD=null,lastCurD=null,lastF=1,showRef=false,stream=null,hintTimer=null,rafId=null,shotDone=false;
-var prevCan=null,prevMode=null,prevRe=null,visRot=0,visZoom=1,camIdx=0,ghostCan=null;
+var prevCan=null,prevMode=null,prevRe=null,visRot=0,visZoom=1,camIdx=0,ghostCan=null,visorOpen=false,greenCount=0;
 var lastMask=null,lastMW=0,lastMH=0,lastInfo=0;
 
 function fileToImage(f){return new Promise(function(res,rej){var u=URL.createObjectURL(f);var im=new Image();im.onload=function(){res(im);};im.onerror=rej;im.src=u;});}
@@ -125,6 +127,12 @@ function coverCrop(c,aspectWH){
  o.getContext("2d").drawImage(c,(cw-sw)/2,(ch-sh)/2,sw,sh,0,0,o.width,o.height);
  return o;
 }
+function showRep(url,caption){
+ $("repimg").src=url;
+ $("repcap").textContent=caption;
+ $("rep").style.display="flex";
+}
+var REPCAP="1) Долго держите палец на картинке → «Сохранить изображение». 2) Пришлите сохранённую картинку в чат. Обсудим потом.";
 
 function showPreview(im,mode,reopen){
  prevCan=toCanvas(im,1200);prevMode=mode;prevRe=reopen;
@@ -227,7 +235,7 @@ function computeShifts(refG,fr){
   mad/=cnt;
   if(mad<5)continue;
   var best=Infinity,bdx=0,bdy=0;
-  for(var dy=-10;dy<=10;dy+=2)for(var dx=-10;dx<=10;dx+=2){
+  for(var dy=-8;dy<=8;dy++)for(var dx=-8;dx<=8;dx++){
    var sx=x0+dx,sy=y0+dy;
    if(sx<0||sy<0||sx+SB>LW||sy+SB>Hc)continue;
    var mC=0;
@@ -257,7 +265,7 @@ function renderGhost(gcan,W,H,fr,refG,sh){
   var dy=sh.ok[idx]?sh.shy[idx]:sh.medy;
   var destX=offXL+(bx*SB+dx)*kx*sL;
   var destY=offYL+(by*SB+dy)*ky*sL;
-  var destW=SB*kx*sL+1,destH=SB*ky*sL+1;
+  var destW=SB*kx*sL+2,destH=SB*ky*sL+2;
   var srcX=bx*SB*gsx,srcY=by*SB*gsy,srcW=SB*gsx+1,srcH=SB*gsy+1;
   ctx.drawImage(refG,srcX,srcY,srcW,srcH,destX,destY,destW,destH);
  }
@@ -378,7 +386,7 @@ function buildReport(){
  var ctx=tmp.getContext("2d");
  ctx.fillStyle="#111";ctx.fillRect(0,0,W,2600);
  ctx.fillStyle="#ffd76a";ctx.font="bold 22px sans-serif";
- ctx.fillText("ПорЯдок 2.6, строгость "+THR+", зон: "+(lastBoxes?lastBoxes.length:0),pad,y+22);y+=34;
+ ctx.fillText("ПорЯдок 2.7, строгость "+THR+", зон: "+(lastBoxes?lastBoxes.length:0),pad,y+22);y+=34;
  ctx.fillText("изменённых информативных блоков: "+(lastInfo*100).toFixed(1)+"%",pad,y+18);y+=40;
  function section(c,label){
   var h=Math.round(W*c.height/c.width);
@@ -399,10 +407,30 @@ function buildReport(){
  }
  var fin=document.createElement("canvas");fin.width=W;fin.height=y;
  fin.getContext("2d").drawImage(tmp,0,0);
- $("repimg").src=fin.toDataURL("image/jpeg",0.8);
- $("rep").style.display="flex";
+ showRep(fin.toDataURL("image/jpeg",0.8),REPCAP);
+}
+function buildScreen(){
+ var W=720,pad=10,y=pad;
+ var tmp=document.createElement("canvas");tmp.width=W;tmp.height=3200;
+ var ctx=tmp.getContext("2d");
+ ctx.fillStyle="#111";ctx.fillRect(0,0,W,3200);
+ ctx.fillStyle="#ffd76a";ctx.font="bold 20px sans-serif";
+ ctx.fillText("ПорЯдок 2.7, экран: "+(visorOpen?"визир":"результат"),pad,y+20);y+=30;
+ ctx.fillText($("status").textContent,pad,y+18,700);y+=28;
+ if(visorOpen){ctx.fillText("Подсказка: "+$("hint").textContent,pad,y+18,700);y+=28;}
+ else{ctx.fillText($("vcap").textContent,pad,y+18,700);y+=28;}
+ var list=visorOpen?[$("live"),$("ovl")]:[$("view")];
+ for(var k=0;k<list.length;k++){
+  var c=list[k];
+  var h=Math.round(W*c.height/Math.max(c.width,1));
+  ctx.drawImage(c,0,0,c.width,c.height,pad,y,W,h);y+=h+pad;
+ }
+ var fin=document.createElement("canvas");fin.width=W;fin.height=y;
+ fin.getContext("2d").drawImage(tmp,0,0);
+ showRep(fin.toDataURL("image/jpeg",0.8),REPCAP);
 }
 function stopVisor(){
+ visorOpen=false;greenCount=0;
  if(hintTimer){clearInterval(hintTimer);hintTimer=null;}
  if(rafId){cancelAnimationFrame(rafId);rafId=null;}
  if(stream){stream.getTracks().forEach(function(t){t.stop();});stream=null;}
@@ -426,8 +454,11 @@ function grabFrame(){
  cx.drawImage(tmp,(vw-cw)/2,(vh-ch)/2,cw,ch,-cw/2,-ch/2,cw,ch);
  return cr;
 }
-function doShot(){
+function frameLuma(fr){var g=grayOf(toCanvas(fr,24));var s=0;for(var i=0;i<g.length;i++)s+=g[i];return s/g.length;}
+function doShot(attempt){
+ attempt=attempt||0;
  var fr=grabFrame();
+ if(fr&&frameLuma(fr)<10&&attempt<3){setTimeout(function(){doShot(attempt+1);},350);return;}
  if(!fr)return;
  curC=toCanvas(fr,1200);
  stopVisor();
@@ -442,11 +473,11 @@ function ghostRef(fr){
 }
 function startVisor(devId){
  if(!refC){status("Сначала задайте эталон.");return;}
- shotDone=false;ghostCan=null;
+ shotDone=false;ghostCan=null;greenCount=0;
  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){status("Визир недоступен здесь, снимаю обычно.");$("fCurCam").click();return;}
  var cons=devId?{deviceId:{exact:devId}}:{facingMode:{ideal:"environment"}};
  navigator.mediaDevices.getUserMedia({video:cons}).then(function(st){
-  stream=st;
+  stream=st;visorOpen=true;
   var vid=$("vidEl");vid.srcObject=st;
   $("visor").style.display="flex";
   var live=$("live"),ovl=$("ovl"),wrap=$("vwrap");
@@ -482,19 +513,34 @@ function startVisor(devId){
    var sh=computeShifts(refG,fr);
    renderGhost(ghostCan,ghostCan.width,ghostCan.height,fr,refG,sh);
    var parts=[];
-   if(sh.okf<0.15){h.className="";h.textContent="Наведите на ту же сцену";return;}
-   if(sh.medx>1.5)parts.push("→ право");else if(sh.medx<-1.5)parts.push("← лево");
-   if(sh.medy>1.5)parts.push("↓ низ");else if(sh.medy<-1.5)parts.push("↑ верх");
-   if(parts.length===0){h.className="good";h.textContent="✓ совмещено, снимайте!";if($("autoshot").checked&&!shotDone){shotDone=true;doShot();}}
-   else{h.className="";h.textContent=parts.join(", ");}
+   if(sh.okf<0.15){greenCount=0;h.className="";h.textContent="Наведите на ту же сцену";return;}
+   if(sh.medx>2)parts.push("→ право");else if(sh.medx<-2)parts.push("← лево");
+   if(sh.medy>2)parts.push("↓ низ");else if(sh.medy<-2)parts.push("↑ верх");
+   if(parts.length===0){
+    greenCount++;
+    h.className="good";h.textContent="✓ совмещено, снимайте!";
+    if($("autoshot").checked&&!shotDone&&greenCount>=2){shotDone=true;doShot(0);}
+   }
+   else{greenCount=0;h.className="";h.textContent=parts.join(", ");}
   },700);
-  $("bShot").onclick=doShot;
+  $("bShot").onclick=function(){doShot(0);};
   $("bCancel").onclick=function(){stopVisor();status("Визир отменён. Источник: "+(srcMode==="cam"?"камера":"память")+".");};
  }).catch(function(){
   status("Камера не открылась визиром, снимаю обычно.");
   $("fCurCam").click();
  });
 }
+window.btShutter=function(){
+ if(visorOpen){doShot(0);return;}
+ if(srcMode==="cam"){
+  if(!refC){$("fRefCam").click();}
+  else{startVisor(null);}
+ }else{
+  if(!refC){$("fRefMem").click();}
+  else if(!curC){$("fCurMem").click();}
+  else{compare();}
+ }
+};
 $("fEvi").onchange=function(){
  var f=this.files[0];this.value="";
  if(f==null||eviZone<0||!zones[eviZone])return;
@@ -524,6 +570,7 @@ $("bRef").onclick=function(){(srcMode==="cam"?$("fRefCam"):$("fRefMem")).click()
 $("bCur").onclick=function(){if(srcMode==="cam")startVisor(null);else $("fCurMem").click();};
 $("bGo").onclick=compare;
 $("bRep").onclick=buildReport;
+$("bScr").onclick=buildScreen;
 $("bRepClose").onclick=function(){$("rep").style.display="none";};
 $("bSrc").onclick=function(){srcMode=srcMode==="cam"?"mem":"cam";this.textContent=srcMode==="cam"?"Источник: камера":"Источник: память";status("Источник: "+(srcMode==="cam"?"камера (визир при проверке)":"память (галерея)")+".");};
 $("bReset").onclick=function(){localStorage.removeItem("poryadok_ref");refC=null;curC=null;zones=[];lastBoxes=null;lastRefD=null;lastCurD=null;lastMask=null;$("zones").innerHTML="";var v=$("view");v.getContext("2d").clearRect(0,0,v.width,v.height);$("vcap").textContent="";status("Эталон сброшен. Источник: "+(srcMode==="cam"?"камера":"память")+". Нажмите «1. Эталон».");};
