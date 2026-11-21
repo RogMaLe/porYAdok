@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ПорЯдок 2.2</title>
+<title>ПорЯдок 2.3</title>
 <style>
  body{font-family:sans-serif;margin:0;background:#1c1b18;color:#eee}
  header{display:flex;align-items:center;justify-content:center;gap:10px;padding:8px;background:#2a2823}
@@ -34,6 +34,9 @@
  #hint{text-align:center;font-size:18px;color:#ffd76a;min-height:24px}
  #hint.good{color:#7fe07f}
  #hint.bad{color:#ff8080;font-size:20px}
+ #prev{position:fixed;inset:0;background:#111;z-index:60;display:none;flex-direction:column}
+ #pcan{display:block;max-width:100%;max-height:70vh;margin:8px auto;background:#000}
+ #porient{text-align:center;color:#ffd76a;padding:6px;font-size:16px}
 </style>
 </head>
 <body>
@@ -46,7 +49,7 @@
  <line x1="46" y1="58" x2="42" y2="66" stroke="#d22" stroke-width="6" stroke-linecap="round"/>
  <line x1="63" y1="58" x2="67" y2="66" stroke="#d22" stroke-width="6" stroke-linecap="round"/>
 </svg>
-<b>ПорЯдок 2.2 «Детектив»</b>
+<b>ПорЯдок 2.3 «Детектив»</b>
 </header>
 <div class="bar">
  <button id="bRef">1. Эталон</button>
@@ -72,6 +75,15 @@
   </div>
  </div>
 </div>
+<div id="prev">
+ <canvas id="pcan"></canvas>
+ <div id="porient"></div>
+ <div class="bar">
+  <button id="bPrevOk">ОК</button>
+  <button id="bPrevRot" class="alt">Повернуть на 90°</button>
+  <button id="bPrevRe" class="alt">Выбрать другое</button>
+ </div>
+</div>
 <input type="file" id="fRefCam" accept="image/*" capture="environment" hidden>
 <input type="file" id="fRefMem" accept="image/*" hidden>
 <input type="file" id="fCurCam" accept="image/*" capture="environment" hidden>
@@ -83,6 +95,7 @@ var THR=30, MINFRAC=0.0025, DW=800, LS=192;
 function $(id){return document.getElementById(id);}
 var refC=null,curC=null,zones=[],eviZone=-1,srcMode="cam";
 var lastBoxes=null,lastRefD=null,lastCurD=null,lastF=1,showRef=false,stream=null,hintTimer=null,rafId=null,shotDone=false;
+var prevCan=null,prevMode=null,prevRe=null;
 
 function fileToImage(f){return new Promise(function(res,rej){var u=URL.createObjectURL(f);var im=new Image();im.onload=function(){res(im);};im.onerror=rej;im.src=u;});}
 function toCanvas(src,maxW){var w=src.naturalWidth||src.width,h=src.naturalHeight||src.height;var s=Math.min(1,maxW/w);var c=document.createElement("canvas");c.width=Math.round(w*s);c.height=Math.round(h*s);c.getContext("2d").drawImage(src,0,0,c.width,c.height);return c;}
@@ -90,6 +103,19 @@ function grayOf(c){var d=c.getContext("2d").getImageData(0,0,c.width,c.height).d
 function grayAt(c,W,H){var t=document.createElement("canvas");t.width=W;t.height=H;t.getContext("2d").drawImage(c,0,0,W,H);return grayOf(t);}
 function status(t){$("status").textContent=t;}
 function rot90(c,cw){var o=document.createElement("canvas");o.width=c.height;o.height=c.width;var x=o.getContext("2d");x.translate(o.width/2,o.height/2);x.rotate(cw?Math.PI/2:-Math.PI/2);x.drawImage(c,-c.width/2,-c.height/2);return o;}
+
+function showPreview(im,mode,reopen){
+ prevCan=toCanvas(im,1200);prevMode=mode;prevRe=reopen;
+ drawPrev();
+ $("prev").style.display="flex";
+}
+function drawPrev(){
+ var p=$("pcan");p.width=prevCan.width;p.height=prevCan.height;
+ p.getContext("2d").drawImage(prevCan,0,0);
+ $("porient").textContent="Ориентация: "+(prevCan.height>prevCan.width?"вертикальная":"горизонтальная");
+}
+function setRefCanvas(c){refC=c;try{localStorage.setItem("poryadok_ref",toCanvas(c,1024).toDataURL("image/jpeg",0.85));}catch(e){}status("Эталон сохранён. Теперь «2. Проверка». Источник: "+(srcMode==="cam"?"камера":"память")+".");}
+function setCurCanvas(c){curC=c;status("Проверка получена. Жмите «Сравнить».");}
 
 function search(rg,cg,W,H,ss,rr,tx0,tx1,tsx,ty0,ty1,tsy){
  var CX=W/2,CY=H/2,lim=W*H,best={s:1,r:0,tx:0,ty:0,score:Infinity};
@@ -114,7 +140,7 @@ function search(rg,cg,W,H,ss,rr,tx0,tx1,tsx,ty0,ty1,tsy){
 function findAlign(rC,cC,deep){
  var LW=96,LH=Math.max(48,Math.round(96*rC.height/rC.width));
  var rg=grayAt(rC,LW,LH),cg=grayAt(cC,LW,LH);
- var b1=search(rg,cg,LW,LH,[0.85,0.92,1.0,1.08,1.15],[-6,-3,0,3,6],-16,16,4,-12,12,3);
+ var b1=search(rg,cg,LW,LH,[0.85,0.92,1.0,1.08+1,1.15],[-6,-3,0,3,6],-16,16,4,-12,12,3);
  if(b1.score===Infinity)return{s:1,r:0,txu:0,tyu:0,score:Infinity};
  var H2=Math.round(LS*LH/LW);
  var rg2=grayAt(rC,LS,H2),cg2=grayAt(cC,LS,H2);
@@ -304,7 +330,7 @@ function startVisor(){
    hintTimer=setInterval(function(){
     var h=$("hint");
     if(!vid.videoWidth)return;
-    if(mismatch){h.className="bad";h.textContent=refHW>1?"Эталон снят ГОРИЗОНТАЛЬНО — поверните телефон горизонтально":"Эталон снят ВЕРТИКАЛЬНО — поверните телефон вертикально";return;}
+    if(mismatch){h.className="bad";h.textContent=refHW>1?"Эталон снят ВЕРТИКАЛЬНО — поверните телефон вертикально":"Эталон снят ГОРИЗОНТАЛЬНО — поверните телефон горизонтально";return;}
     fc.width=320;fc.height=Math.round(320*vid.videoHeight/vid.videoWidth);
     fc.getContext("2d").drawImage(vid,0,0,fc.width,fc.height);
     var al=findAlign(refC,fc,false);
@@ -337,17 +363,27 @@ $("fEvi").onchange=function(){
   status("Зона "+(eviZone+1)+" помечена как объяснённая.");
  });
 };
-function setRef(im){refC=toCanvas(im,1200);try{localStorage.setItem("poryadok_ref",toCanvas(im,1024).toDataURL("image/jpeg",0.85));}catch(e){}status("Эталон сохранён. Теперь «2. Проверка». Источник: "+(srcMode==="cam"?"камера":"память")+".");}
-function setCur(im){curC=toCanvas(im,1200);status("Проверка получена. Жмите «Сравнить».");}
+$("bPrevRot").onclick=function(){if(prevCan){prevCan=rot90(prevCan,true);drawPrev();}};
+$("bPrevOk").onclick=function(){
+ $("prev").style.display="none";
+ var c=prevCan,m=prevMode;prevCan=null;
+ if(!c)return;
+ if(m==="ref")setRefCanvas(c);else setCurCanvas(c);
+};
+$("bPrevRe").onclick=function(){
+ $("prev").style.display="none";
+ var r=prevRe;prevCan=null;
+ if(r)r();
+};
 $("bRef").onclick=function(){(srcMode==="cam"?$("fRefCam"):$("fRefMem")).click();};
 $("bCur").onclick=function(){if(srcMode==="cam")startVisor();else $("fCurMem").click();};
 $("bGo").onclick=compare;
 $("bSrc").onclick=function(){srcMode=srcMode==="cam"?"mem":"cam";this.textContent=srcMode==="cam"?"Источник: камера":"Источник: память";status("Источник: "+(srcMode==="cam"?"камера (визир при проверке)":"память (галерея)")+".");};
 $("bReset").onclick=function(){localStorage.removeItem("poryadok_ref");refC=null;curC=null;zones=[];lastBoxes=null;lastRefD=null;lastCurD=null;$("zones").innerHTML="";var v=$("view");v.getContext("2d").clearRect(0,0,v.width,v.height);$("vcap").textContent="";status("Эталон сброшен. Источник: "+(srcMode==="cam"?"камера":"память")+". Нажмите «1. Эталон».");};
-$("fRefCam").onchange=function(){var f=this.files[0];this.value="";if(f)fileToImage(f).then(setRef);};
-$("fRefMem").onchange=function(){var f=this.files[0];this.value="";if(f)fileToImage(f).then(setRef);};
-$("fCurCam").onchange=function(){var f=this.files[0];this.value="";if(f)fileToImage(f).then(setCur);};
-$("fCurMem").onchange=function(){var f=this.files[0];this.value="";if(f)fileToImage(f).then(setCur);};
+$("fRefCam").onchange=function(){var f=this.files[0];this.value="";if(f)fileToImage(f).then(function(im){setRefCanvas(toCanvas(im,1200));});};
+$("fRefMem").onchange=function(){var f=this.files[0];this.value="";if(f)fileToImage(f).then(function(im){showPreview(im,"ref",function(){$("fRefMem").click();});});};
+$("fCurCam").onchange=function(){var f=this.files[0];this.value="";if(f)fileToImage(f).then(function(im){setCurCanvas(toCanvas(im,1200));});};
+$("fCurMem").onchange=function(){var f=this.files[0];this.value="";if(f)fileToImage(f).then(function(im){showPreview(im,"cur",function(){$("fCurMem").click();});});};
 $("sens").oninput=function(){THR=+this.value;$("sensv").textContent=this.value;if(refC&&curC)compare();};
 var tsx=0,tsy2=0;
 $("view").addEventListener("touchstart",function(e){tsx=e.touches[0].clientX;tsy2=e.touches[0].clientY;},{passive:true});
