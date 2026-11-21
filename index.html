@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ПорЯдок 2.4</title>
+<title>ПорЯдок 2.5</title>
 <style>
  body{font-family:sans-serif;margin:0;background:#1c1b18;color:#eee}
  header{display:flex;align-items:center;justify-content:center;gap:10px;padding:8px;background:#2a2823}
@@ -34,10 +34,12 @@
  .vbar{padding:8px;background:#2a2823;display:flex;flex-direction:column;gap:6px}
  #hint{text-align:center;font-size:18px;color:#ffd76a;min-height:24px}
  #hint.good{color:#7fe07f}
- #hint.bad{color:#ff8080;font-size:20px}
  #prev{position:fixed;inset:0;background:#111;z-index:60;display:none;flex-direction:column}
  #pcan{display:block;max-width:100%;max-height:70vh;margin:8px auto;background:#000}
  #porient{text-align:center;color:#ffd76a;padding:6px;font-size:16px}
+ #rep{position:fixed;inset:0;background:#111;z-index:70;display:none;flex-direction:column;overflow:auto}
+ #repimg{display:block;width:100%;background:#000}
+ #repcap{text-align:center;color:#ffd76a;padding:8px;font-size:14px}
 </style>
 </head>
 <body>
@@ -50,13 +52,14 @@
  <line x1="46" y1="58" x2="42" y2="66" stroke="#d22" stroke-width="6" stroke-linecap="round"/>
  <line x1="63" y1="58" x2="67" y2="66" stroke="#d22" stroke-width="6" stroke-linecap="round"/>
 </svg>
-<b>ПорЯдок 2.4 «Детектив»</b>
+<b>ПорЯдок 2.5 «Детектив»</b>
 </header>
 <div class="bar">
  <button id="bRef">1. Эталон</button>
  <button id="bCur">2. Проверка</button>
  <button id="bGo" class="alt">Сравнить</button>
  <button id="bSrc" class="alt">Источник: камера</button>
+ <button id="bRep" class="alt">📤 Отчёт</button>
  <button id="bReset" class="alt">Сброс</button>
 </div>
 <div class="srow"><button id="sMinus" class="alt mini">−</button> Строгость: <input type="range" id="sens" min="15" max="60" value="30"> <span id="sensv">30</span> <button id="sPlus" class="alt mini">+</button> (выше — меньше тревог)</div>
@@ -88,18 +91,25 @@
   <button id="bPrevRe" class="alt">Выбрать другое</button>
  </div>
 </div>
+<div id="rep">
+ <img id="repimg" alt="отчёт">
+ <div id="repcap">Долго держите палец на картинке → «Сохранить изображение». Потом пришлите её в чат.</div>
+ <div class="bar"><button id="bRepClose" class="alt">Закрыть</button></div>
+</div>
 <input type="file" id="fRefCam" accept="image/*" capture="environment" hidden>
 <input type="file" id="fRefMem" accept="image/*" hidden>
 <input type="file" id="fCurCam" accept="image/*" capture="environment" hidden>
 <input type="file" id="fCurMem" accept="image/*" hidden>
 <input type="file" id="fEvi" accept="image/*" hidden>
+<video id="vidEl" autoplay playsinline muted style="display:none"></video>
 <script>
 "use strict";
-var THR=30, MINFRAC=0.0025, DW=800, LS=192;
+var THR=30, MINFRAC=0.0025, DW=800, LS=192, B=16;
 function $(id){return document.getElementById(id);}
 var refC=null,curC=null,zones=[],eviZone=-1,srcMode="cam";
 var lastBoxes=null,lastRefD=null,lastCurD=null,lastF=1,showRef=false,stream=null,hintTimer=null,rafId=null,shotDone=false;
-var prevCan=null,prevMode=null,prevRe=null,visRot=0,visZoom=1,camIdx=0;
+var prevCan=null,prevMode=null,prevRe=null,visRot=0,visZoom=1,camIdx=0,visAl=null;
+var lastMask=null,lastMW=0,lastMH=0,lastInfo=0;
 
 function fileToImage(f){return new Promise(function(res,rej){var u=URL.createObjectURL(f);var im=new Image();im.onload=function(){res(im);};im.onerror=rej;im.src=u;});}
 function toCanvas(src,maxW){var w=src.naturalWidth||src.width,h=src.naturalHeight||src.height;var s=Math.min(1,maxW/w);var c=document.createElement("canvas");c.width=Math.round(w*s);c.height=Math.round(h*s);c.getContext("2d").drawImage(src,0,0,c.width,c.height);return c;}
@@ -156,60 +166,64 @@ function findAlign(rC,cC,deep){
  var b3=search(rg3,cg3,L3,H3,[b2.s-0.01,b2.s,b2.s+0.01],[b2.r-0.5,b2.r,b2.r+0.5],Math.round(b2.tx*2)-2,Math.round(b2.tx*2)+2,1,Math.round(b2.ty*2)-2,Math.round(b2.ty*2)+2,1);
  return{s:b3.s,r:b3.r,txu:b3.tx/L3,tyu:b3.ty/L3,score:b3.score};
 }
-function warpRender(cC,W,refAspect,al){
- var H=Math.round(W*refAspect);
- var c=document.createElement("canvas");c.width=W;c.height=H;
- var ctx=c.getContext("2d");ctx.fillStyle="#777";ctx.fillRect(0,0,W,H);
- var sc=toCanvas(cC,W);
- var a=al.r*Math.PI/180,co=Math.cos(a),sin=Math.sin(a);
- var A00=al.s*co,A01=-al.s*sin,A10=al.s*sin,A11=al.s*co;
- var CX=W/2,CY=H/2,tx=al.txu*W,ty=al.tyu*W;
- var b0=CX-(A00*CX+A01*CY)+tx,b1=CY-(A10*CX+A11*CY)+ty;
- var P00=co/al.s,P01=sin/al.s,P10=-sin/al.s,P11=co/al.s;
- var q0=-(P00*b0+P01*b1),q1=-(P10*b0+P11*b1);
- ctx.setTransform(P00,P10,P01,P11,q0,q1);
- ctx.drawImage(sc,0,0);
- ctx.setTransform(1,0,0,1,0,0);
- return c;
-}
-function warpValid(W,H,al,srcHW){
- var v=new Uint8Array(W*H);
- var sw=W,sh=Math.max(1,Math.round(W*srcHW));
- var a=al.r*Math.PI/180,co=Math.cos(a),sin=Math.sin(a);
- var A00=al.s*co,A01=-al.s*sin,A10=al.s*sin,A11=al.s*co;
- var CX=W/2,CY=H/2,tx=al.txu*W,ty=al.tyu*W;
- var b0=CX-(A00*CX+A01*CY)+tx,b1=CY-(A10*CX+A11*CY)+ty;
- for(var y=0;y<H;y++)for(var x=0;x<W;x++){
-  var dx=x-CX,dy=y-CY;
-  var px=Math.round(A00*dx+A01*dy+b0),py=Math.round(A10*dx+A11*dy+b1);
-  v[y*W+x]=(px>=0&&py>=0&&px<sw&&py<sh)?1:0;
+function blockCompare(g1,g2,W,H,al){
+ var GW=Math.floor(W/B),GH=Math.floor(H/B);
+ var mask=new Uint8Array(GW*GH),info=0,changed=0;
+ var T=THR*0.7;
+ var a=al?al.r*Math.PI/180:0,co=Math.cos(a),si=Math.sin(a),s=al?al.s:1;
+ var b0x=al?al.txu*W:0,b0y=al?al.tyu*H:0;
+ var CX=W/2,CY=H/2;
+ var A00=s*co,A01=-s*si,A10=s*si,A11=s*co;
+ var mx=CX-(A00*CX+A01*CY)+b0x,my=CY-(A10*CX+A11*CY)+b0y;
+ for(var by=0;by<GH;by++)for(var bx=0;bx<GW;bx++){
+  var x0=bx*B,y0=by*B,i,j;
+  var mR=0,cnt=0;
+  for(j=0;j<B;j++)for(i=0;i<B;i++){mR+=g1[(y0+j)*W+(x0+i)];cnt++;}
+  mR/=cnt;
+  var mad=0;
+  for(j=0;j<B;j++)for(i=0;i<B;i++){mad+=Math.abs(g1[(y0+j)*W+(x0+i)]-mR);}
+  mad/=cnt;
+  if(mad<5)continue;
+  info++;
+  var cxm=x0+B/2,cym=y0+B/2;
+  var dx0=Math.round(A00*cxm+A01*cym+mx-cxm);
+  var dy0=Math.round(A10*cxm+A11*cym+my-cym);
+  var best=Infinity;
+  for(var dy=dy0-6;dy<=dy0+6;dy+=2)for(var dx=dx0-6;dx<=dx0+6;dx+=2){
+   var sx=x0+dx,sy=y0+dy;
+   if(sx<0||sy<0||sx+B>W||sy+B>H)continue;
+   var mC=0;
+   for(j=0;j<B;j++)for(i=0;i<B;i++){mC+=g2[(sy+j)*W+(sx+i)];}
+   mC/=cnt;
+   var r=0;
+   for(j=0;j<B;j++)for(i=0;i<B;i++){r+=Math.abs((g1[(y0+j)*W+(x0+i)]-mR)-(g2[(sy+j)*W+(sx+i)]-mC));}
+   r/=cnt;
+   if(r<best)best=r;
+  }
+  if(best===Infinity)best=T+1;
+  if(best>T){mask[by*GW+bx]=1;changed++;}
  }
- return v;
+ lastInfo=info>0?changed/info:0;
+ return{mask:mask,GW:GW,GH:GH};
 }
-function blur3(m,W,H){var t=new Float32Array(m.length),o=new Float32Array(m.length);var x,y,i,j;
- for(y=0;y<H;y++)for(x=0;x<W;x++){var s=0,c=0;for(i=-1;i<2;i++){var xx=x+i;if(xx<0||xx>=W)continue;s+=m[y*W+xx];c++;}t[y*W+x]=s/c;}
- for(y=0;y<H;y++)for(x=0;x<W;x++){var s2=0,c2=0;for(j=-1;j<2;j++){var yy=y+j;if(yy<0||yy>=H)continue;s2+=t[yy*W+x];c2++;}o[y*W+x]=s2/c2;}
- return o;}
-function erode(m,W,H){var o=new Uint8Array(W*H);for(var y=0;y<H;y++)for(var x=0;x<W;x++){var v=1;for(var dy=-1;dy<2&&v;dy++)for(var dx=-1;dx<2;dx++){var yy=y+dy,xx=x+dx;var val=(yy<0||xx<0||yy>=H||xx>=W)?0:m[yy*W+xx];if(!val){v=0;break;}}o[y*W+x]=v;}return o;}
-function dilate(m,W,H){var o=new Uint8Array(W*H);for(var y=0;y<H;y++)for(var x=0;x<W;x++){var v=0;for(var dy=-1;dy<2&&!v;dy++)for(var dx=-1;dx<2;dx++){var yy=y+dy,xx=x+dx;if(yy<0||xx<0||yy>=H||xx>=W)continue;if(m[yy*W+xx]){v=1;break;}}o[y*W+x]=v;}return o;}
-function components(mask,W,H,minArea){
- var seen=new Uint8Array(W*H),out=[],stack=[];
- for(var y=0;y<H;y++)for(var x=0;x<W;x++){
-  var idx=y*W+x;
+function componentsBlocks(mask,GW,GH,minBlocks){
+ var seen=new Uint8Array(GW*GH),out=[],stack=[];
+ for(var y=0;y<GH;y++)for(var x=0;x<GW;x++){
+  var idx=y*GW+x;
   if(!mask[idx]||seen[idx])continue;
   stack.length=0;stack.push(idx);seen[idx]=1;
   var minx=x,maxx=x,miny=y,maxy=y,area=0;
   while(stack.length){
-   var p=stack.pop(),px=p%W,py=(p/W)|0;area++;
+   var p=stack.pop(),px=p%GW,py=(p/GW)|0;area++;
    if(px<minx)minx=px;if(px>maxx)maxx=px;if(py<miny)miny=py;if(py>maxy)maxy=py;
    for(var d=0;d<4;d++){
     var nx=px+(d===0?1:d===1?-1:0),ny=py+(d===2?1:d===3?-1:0);
-    if(nx<0||ny<0||nx>=W||ny>=H)continue;
-    var ni=ny*W+nx;
+    if(nx<0||ny<0||nx>=GW||ny>=GH)continue;
+    var ni=ny*GW+nx;
     if(mask[ni]&&!seen[ni]){seen[ni]=1;stack.push(ni);}
    }
   }
-  if(area>=minArea)out.push({x:minx,y:miny,w:maxx-minx+1,h:maxy-miny+1,area:area});
+  if(area>=minBlocks)out.push({x:minx,y:miny,w:maxx-minx+1,h:maxy-miny+1,area:area});
  }
  return out;
 }
@@ -251,44 +265,38 @@ function compare(){
     var a1=findAlign(refC,c1,false),a2=findAlign(refC,c2,false);
     if(a1.score<=a2.score)curWork=c1;else curWork=c2;
    }
-   var al=findAlign(refC,curWork,true);
-   var aligned=true;
-   if(al.score===Infinity){al={s:1,r:0,txu:0,tyu:0};aligned=false;}
+   var al=findAlign(refC,curWork,false);
+   if(al.score===Infinity)al=null;
    var MW=320,MH=Math.round(MW*refAspect);
    var g1=grayAt(refC,MW,MH);
-   var g2=grayOf(warpRender(curWork,MW,refAspect,al));
-   var val=warpValid(MW,MH,al,curWork.height/curWork.width);
-   var m1=0,m2=0,n=0,i;
-   for(i=0;i<g1.length;i++){if(val[i]){m1+=g1[i];m2+=g2[i];n++;}}
-   m1/=Math.max(n,1);m2/=Math.max(n,1);
+   var g2=grayAt(curWork,MW,MH);
+   var m1=0,m2=0,i;
+   for(i=0;i<g1.length;i++){m1+=g1[i];m2+=g2[i];}
+   m1/=g1.length;m2/=g2.length;
    var s1=0,s2=0;
-   for(i=0;i<g1.length;i++){if(val[i]){s1+=(g1[i]-m1)*(g1[i]-m1);s2+=(g2[i]-m2)*(g2[i]-m2);}}
-   s1=Math.sqrt(s1/Math.max(n,1));s2=Math.sqrt(s2/Math.max(n,1));
-   var g2n=new Float32Array(g2.length);
-   for(i=0;i<g2.length;i++){g2n[i]=Math.max(0,Math.min(255,(g2[i]-m2)*(s1/Math.max(s2,0.001))+m1));}
-   var diff=new Float32Array(g1.length);
-   for(i=0;i<diff.length;i++)diff[i]=val[i]?Math.abs(g1[i]-g2n[i]):0;
-   diff=blur3(diff,MW,MH);
-   var mask=new Uint8Array(MW*MH);
-   for(i=0;i<mask.length;i++)mask[i]=diff[i]>THR?1:0;
-   mask=erode(mask,MW,MH);mask=dilate(mask,MW,MH);
-   mask=dilate(mask,MW,MH);mask=erode(mask,MW,MH);
-   var boxes=components(mask,MW,MH,Math.round(MINFRAC*MW*MH));
-   for(i=0;i<boxes.length;i++){
-    var bb=boxes[i];
-    bb.edge=(bb.x<=1||bb.y<=1||bb.x+bb.w>=MW-2||bb.y+bb.h>=MH-2);
+   for(i=0;i<g1.length;i++){s1+=(g1[i]-m1)*(g1[i]-m1);s2+=(g2[i]-m2)*(g2[i]-m2);}
+   s1=Math.sqrt(s1/g1.length);s2=Math.sqrt(s2/g2.length);
+   for(i=0;i<g2.length;i++){g2[i]=Math.max(0,Math.min(255,(g2[i]-m2)*(s1/Math.max(s2,0.001))+m1));}
+   var bc=blockCompare(g1,g2,MW,MH,al);
+   lastMask=bc.mask;lastMW=bc.GW;lastMH=bc.GH;
+   var bl=componentsBlocks(bc.mask,bc.GW,bc.GH,2);
+   var boxes=[];
+   for(i=0;i<bl.length;i++){
+    var bb=bl[i];
+    var box={x:bb.x*B,y:bb.y*B,w:bb.w*B,h:bb.h*B,area:bb.area};
+    box.edge=(box.x<=1||box.y<=1||box.x+box.w>=MW-2||box.y+box.h>=MH-2);
+    boxes.push(box);
    }
    boxes.sort(function(a,b){return b.area-a.area;});
-   lastCurD=warpRender(curWork,DW,refAspect,al);
+   lastCurD=toCanvas(curWork,DW);
    lastRefD=toCanvas(refC,DW);
    lastBoxes=boxes;lastF=DW/MW;showRef=false;
    var view=$("view");view.width=DW;view.height=Math.round(DW*refAspect);
    drawView();
    zones=[];$("zones").innerHTML="";
    for(var zi=0;zi<boxes.length;zi++)addZone(zi+1,boxes[zi],lastRefD,lastCurD,lastF);
-   if(boxes.length===0&&aligned)status("Изменений не найдено. Порядок идеальный.");
-   else if(boxes.length===0&&!aligned)status("Совместить кадры не удалось и явных изменений не видно. Гарантировать порядок не могу. Переснимите ближе к точке эталона.");
-   else status("Зон изменений: "+boxes.length+(aligned?". Ниже — было/стало по каждой.":". Кадры не совместились точно — зоны приблизительные; оранжевые у края кадра наименее надёжны."));
+   if(boxes.length===0)status("Изменений не найдено. Порядок идеальный.");
+   else status("Зон изменений: "+boxes.length+". Ниже — было/стало по каждой.");
   }catch(e){status("Ошибка сравнения: "+e.message);}
  },60);
 }
@@ -305,6 +313,39 @@ function addZone(n,b,refD,curD,f){
  div.appendChild(t);div.appendChild(pair);div.appendChild(btn);div.appendChild(evi);
  $("zones").appendChild(div);
  zones.push({el:div,t:t});
+}
+function buildReport(){
+ if(!lastRefD||!lastCurD){status("Сначала сделайте сравнение, потом отчёт.");return;}
+ var W=720,pad=10,y=pad;
+ var tmp=document.createElement("canvas");tmp.width=W;tmp.height=2000;
+ var ctx=tmp.getContext("2d");
+ ctx.fillStyle="#111";ctx.fillRect(0,0,W,2000);
+ ctx.fillStyle="#ffd76a";ctx.font="bold 22px sans-serif";
+ ctx.fillText("ПорЯдок 2.5, строгость "+THR+", зон: "+(lastBoxes?lastBoxes.length:0),pad,y+22);y+=34;
+ ctx.fillText("изменённых блоков: "+(lastInfo*100).toFixed(1)+"%",pad,y+18);y+=40;
+ function section(c,label){
+  var h=Math.round(W*c.height/c.width);
+  ctx.fillStyle="#fff";ctx.font="bold 18px sans-serif";ctx.fillText(label,pad,y+14);y+=20;
+  ctx.drawImage(c,0,0,c.width,c.height,pad,y,W,h);y+=h+pad;
+  return y;
+ }
+ section(lastRefD,"ЭТАЛОН");
+ section(lastCurD,"ПРОВЕРКА");
+ if(lastMask){
+  var mc=document.createElement("canvas");mc.width=lastMW;mc.height=lastMH;
+  var md=mc.getContext("2d").createImageData(lastMW,lastMH);
+  for(var i=0;i<lastMask.length;i++){var v=lastMask[i]?255:0;md.data[i*4]=v;md.data[i*4+1]=v;md.data[i*4+2]=v;md.data[i*4+3]=255;}
+  mc.getContext("2d").putImageData(md,0,0);
+  ctx.fillStyle="#fff";ctx.font="bold 18px sans-serif";ctx.fillText("МАСКА ИЗМЕНЕНИЙ (белое = тревога)",pad,y+14);y+=20;
+  ctx.imageSmoothingEnabled=false;
+  ctx.drawImage(mc,0,0,lastMW,lastMH,pad,y,W*Math.max(1,Math.floor(lastMW*B/320))*0+W,y+0);
+  var hm=Math.round(W*lastMH/lastMW);
+  ctx.drawImage(mc,0,0,lastMW,lastMH,pad,y,W,hm);y+=hm+pad;
+ }
+ var fin=document.createElement("canvas");fin.width=W;fin.height=y;
+ fin.getContext("2d").drawImage(tmp,0,0);
+ $("repimg").src=fin.toDataURL("image/jpeg",0.8);
+ $("rep").style.display="flex";
 }
 function stopVisor(){
  if(hintTimer){clearInterval(hintTimer);hintTimer=null;}
@@ -338,9 +379,37 @@ function doShot(){
  status("Проверка получена. Сравниваю…");
  compare();
 }
+function ghostRef(fr){
+ var refHW=refC.height/refC.width;
+ var frHW=fr.height/fr.width;
+ if((refHW>1)!==(frHW>1))return rot90(refC,true);
+ return refC;
+}
+function drawGhost(ctx,W,H,fr,refG,al){
+ ctx.clearRect(0,0,W,H);
+ ctx.globalAlpha=$("alpha").value/100;
+ if(al){
+  var sC=Math.max(W/fr.width,H/fr.height);
+  var offX=(W-fr.width*sC)/2,offY=(H-fr.height*sC)/2;
+  var a=al.r*Math.PI/180,co=Math.cos(a),si=Math.sin(a),s=al.s;
+  var rw=refG.width,rh=refG.height,fw=fr.width,fh=fr.height;
+  var kx=sC*fw*s*co/rw;
+  var kyx=-sC*fw*s*si/rh;
+  var kxy=sC*fh*s*si/rw;
+  var ky=sC*fh*s*co/rh;
+  var e=offX+sC*fw*(0.5+al.txu-0.5*s*co+0.5*s*si);
+  var f=offY+sC*fh*(0.5+al.tyu-0.5*s*si-0.5*s*co);
+  ctx.setTransform(kx,kxy,kyx,ky,e,f);
+  ctx.drawImage(refG,0,0);
+  ctx.setTransform(1,0,0,1,0,0);
+ }else{
+  coverDraw(ctx,refG,W,H);
+ }
+ ctx.globalAlpha=1;
+}
 function startVisor(devId){
  if(!refC){status("Сначала задайте эталон.");return;}
- shotDone=false;
+ shotDone=false;visAl=null;
  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){status("Визир недоступен здесь, снимаю обычно.");$("fCurCam").click();return;}
  var cons=devId?{deviceId:{exact:devId}}:{facingMode:{ideal:"environment"}};
  navigator.mediaDevices.getUserMedia({video:cons}).then(function(st){
@@ -348,18 +417,20 @@ function startVisor(devId){
   var vid=$("vidEl");vid.srcObject=st;
   $("visor").style.display="flex";
   var live=$("live"),ovl=$("ovl"),wrap=$("vwrap");
-  live.width=wrap.clientWidth;live.height=wrap.clientHeight;
-  ovl.width=wrap.clientWidth;ovl.height=wrap.clientHeight;
+  var fit=function(){
+   if(live.width!==wrap.clientWidth||live.height!==wrap.clientHeight){
+    live.width=wrap.clientWidth;live.height=wrap.clientHeight;
+    ovl.width=wrap.clientWidth;ovl.height=wrap.clientHeight;
+   }
+  };
+  fit();
   var loop=function(){
+   fit();
    var fr=grabFrame();
    var lctx=live.getContext("2d");
    lctx.fillStyle="#000";lctx.fillRect(0,0,live.width,live.height);
    if(fr)coverDraw(lctx,fr,live.width,live.height);
-   var octx=ovl.getContext("2d");
-   octx.clearRect(0,0,ovl.width,ovl.height);
-   octx.globalAlpha=$("alpha").value/100;
-   coverDraw(octx,refC,ovl.width,ovl.height);
-   octx.globalAlpha=1;
+   if(fr)drawGhost(ovl.getContext("2d"),ovl.width,ovl.height,fr,ghostRef(fr),visAl);
    rafId=requestAnimationFrame(loop);
   };
   loop();
@@ -367,15 +438,13 @@ function startVisor(devId){
    var h=$("hint");
    var fr=grabFrame();
    if(!fr)return;
-   var frHW=fr.height/fr.width;
-   var refHW=refC.height/refC.width;
-   if((refHW>1)!==(frHW>1)){h.className="bad";h.textContent=refHW>1?"Эталон снят ВЕРТИКАЛЬНО — поверните телефон вертикально":"Эталон снят ГОРИЗОНТАЛЬНО — поверните телефон горизонтально";return;}
-   var al=findAlign(refC,toCanvas(fr,320),false);
+   var al=findAlign(ghostRef(fr),toCanvas(fr,320),false);
+   visAl=(al.score===Infinity)?null:al;
    var parts=[];
-   if(al.score===Infinity){h.className="";h.textContent="Наведите на ту же сцену";return;}
-   if(al.txu>0.02)parts.push("→ право");else if(al.txu<-0.02)parts.push("← лево");
-   if(al.tyu>0.02)parts.push("↓ низ");else if(al.tyu<-0.02)parts.push("↑ верх");
-   if(al.s<0.85)parts.push("сильно ближе");else if(al.s>1.15)parts.push("сильно дальше");
+   if(!visAl){h.className="";h.textContent="Наведите на ту же сцену";return;}
+   if(visAl.txu>0.02)parts.push("→ право");else if(visAl.txu<-0.02)parts.push("← лево");
+   if(visAl.tyu>0.02)parts.push("↓ низ");else if(visAl.tyu<-0.02)parts.push("↑ верх");
+   if(visAl.s<0.85)parts.push("сильно ближе");else if(visAl.s>1.15)parts.push("сильно дальше");
    if(parts.length===0){h.className="good";h.textContent="✓ совмещено, снимайте!";if($("autoshot").checked&&!shotDone){shotDone=true;doShot();}}
    else{h.className="";h.textContent=parts.join(", ");}
   },700);
@@ -414,8 +483,10 @@ $("bPrevRe").onclick=function(){
 $("bRef").onclick=function(){(srcMode==="cam"?$("fRefCam"):$("fRefMem")).click();};
 $("bCur").onclick=function(){if(srcMode==="cam")startVisor(null);else $("fCurMem").click();};
 $("bGo").onclick=compare;
+$("bRep").onclick=buildReport;
+$("bRepClose").onclick=function(){$("rep").style.display="none";};
 $("bSrc").onclick=function(){srcMode=srcMode==="cam"?"mem":"cam";this.textContent=srcMode==="cam"?"Источник: камера":"Источник: память";status("Источник: "+(srcMode==="cam"?"камера (визир при проверке)":"память (галерея)")+".");};
-$("bReset").onclick=function(){localStorage.removeItem("poryadok_ref");refC=null;curC=null;zones=[];lastBoxes=null;lastRefD=null;lastCurD=null;$("zones").innerHTML="";var v=$("view");v.getContext("2d").clearRect(0,0,v.width,v.height);$("vcap").textContent="";status("Эталон сброшен. Источник: "+(srcMode==="cam"?"камера":"память")+". Нажмите «1. Эталон».");};
+$("bReset").onclick=function(){localStorage.removeItem("poryadok_ref");refC=null;curC=null;zones=[];lastBoxes=null;lastRefD=null;lastCurD=null;lastMask=null;$("zones").innerHTML="";var v=$("view");v.getContext("2d").clearRect(0,0,v.width,v.height);$("vcap").textContent="";status("Эталон сброшен. Источник: "+(srcMode==="cam"?"камера":"память")+". Нажмите «1. Эталон».");};
 $("bRot").onclick=function(){visRot=(visRot+1)%4;};
 $("zoom").oninput=function(){visZoom=+this.value/100;$("zoomv").textContent=visZoom.toFixed(1);};
 $("bCam").onclick=function(){
@@ -444,6 +515,5 @@ $("view").addEventListener("click",function(){if(lastRefD){showRef=!showRef;draw
  if(d){var im=new Image();im.onload=function(){refC=toCanvas(im,1200);status("Эталон загружен из памяти. Можно сразу «2. Проверка».");};im.src=d;}
 })();
 </script>
-<video id="vidEl" autoplay playsinline muted style="display:none"></video>
 </body>
 </html>
