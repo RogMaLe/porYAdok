@@ -29,8 +29,21 @@ jobs:
       - name: Generate project
         run: python3 make_project.py
       - name: Build
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: |
+          set +e
+          gradle assembleDebug --no-daemon --stacktrace > build.log 2>&1
+          code=$?
+          { echo '```'; tail -n 80 build.log; echo '```'; } >> $GITHUB_STEP_SUMMARY
+          exit $code
+      - name: Publish first-run keystore
+        if: ${{ hashFiles('poryadok.jks') == '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: keystore-first-run
+          path: /home/runner/.android/debug.keystore
       - uses: actions/upload-artifact@v4
+        if: success()
         with:
           name: poryadok-apk
           path: app/build/outputs/apk/debug/app-debug.apk
